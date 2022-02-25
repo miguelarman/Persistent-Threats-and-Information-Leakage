@@ -5,7 +5,8 @@ import soundfile as sf
 
 REDUNDANCY = 4
 PADDINGWIDTH = 15
-BYTESFORLENGTH = 4
+BYTESFORLENGTHOFFILENAME = 1
+BYTESFORLENGTHOFSECRET = 2
 
 
 def byte2Bits(byte):
@@ -50,17 +51,17 @@ def bits2File(bits, filename):
       byte = n.to_bytes(1, byteorder="big")
       f.write(byte)
 
-def length2Bits(length): # 4 bytes
-  bits = [0,]*8*BYTESFORLENGTH
+def length2Bits(length, nbytes): # 4 bytes
+  bits = [0,]*8*nbytes
   n = length
-  for i in range(8*BYTESFORLENGTH):
-    bits[8*BYTESFORLENGTH-1-i] = n%2
+  for i in range(8*nbytes):
+    bits[8*nbytes-1-i] = n%2
     n = n//2
   return bits
 
-def bits2Length(bits):
+def bits2Length(bits, nbytes):
     n = 0
-    for i in range(BYTESFORLENGTH):
+    for i in range(nbytes):
         n_ = bits2Int(bits[i*8:(i+1)*8])
         n *= 2**8
         n += n_
@@ -144,7 +145,7 @@ def encode(audioFilename, secretFilename, outputFilename):
     except:
         print("Error opening file")
         return
-    bytesToBeWriten = (int(len(secretBits) / 8) + BYTESFORLENGTH + BYTESFORLENGTH + len(secretFilename)) * REDUNDANCY
+    bytesToBeWriten = (BYTESFORLENGTHOFFILENAME + len(secretFilename) + BYTESFORLENGTHOFSECRET + int(len(secretBits) / 8)) * REDUNDANCY
     print(f"Bytes to be written: {bytesToBeWriten}")
 
     if bytesToBeWriten > availableBytes:
@@ -155,8 +156,8 @@ def encode(audioFilename, secretFilename, outputFilename):
     # Format:
     # 4 bytes with length of filename + filename as bits
     # 4 bytes with length of secret + secret bits
-    fullSecretBits = length2Bits(len(secretFilename)) + filename2Bits(secretFilename) + \
-                     length2Bits(int(len(secretBits) / 8)) + secretBits
+    fullSecretBits = length2Bits(len(secretFilename), BYTESFORLENGTHOFFILENAME) + filename2Bits(secretFilename) + \
+                     length2Bits(int(len(secretBits) / 8), BYTESFORLENGTHOFSECRET) + secretBits
 
     expandedSecretBits = expandBits(fullSecretBits)
 
@@ -205,10 +206,10 @@ def decode(audioFilename):
     print(f"Bits unexpanded to {len(secretBits)} bits")
     secretBits = secretBits[:-(len(secretBits) % 8)]
 
-    lengthOfFilename = bits2Length(  secretBits[                                                   : (BYTESFORLENGTH                                               )*8])
-    filename         = bits2Filename(secretBits[(BYTESFORLENGTH                                )*8 : (BYTESFORLENGTH+lengthOfFilename                              )*8])
-    lengthOfSecret   = bits2Length(  secretBits[(BYTESFORLENGTH+lengthOfFilename               )*8 : (BYTESFORLENGTH+lengthOfFilename+BYTESFORLENGTH               )*8])
-    secretBits       =               secretBits[(BYTESFORLENGTH+lengthOfFilename+BYTESFORLENGTH)*8 : (BYTESFORLENGTH+lengthOfFilename+BYTESFORLENGTH+lengthOfSecret)*8]
+    filename         = bits2Filename(secretBits[(BYTESFORLENGTHOFFILENAME                                        )*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename                                      )*8])
+    lengthOfFilename = bits2Length(  secretBits[                                                                     : (BYTESFORLENGTHOFFILENAME                                                       )*8])
+    lengthOfSecret   = bits2Length(  secretBits[(BYTESFORLENGTHOFFILENAME+lengthOfFilename                       )*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET               )*8])
+    secretBits       =               secretBits[(BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET)*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET+lengthOfSecret)*8]
 
     print(f"Length of filename: {lengthOfFilename}")
     print(f"Filename: {filename}")
