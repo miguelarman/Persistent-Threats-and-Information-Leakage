@@ -157,7 +157,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     abs_spectrogram = signal2Spectrogram(sig)
     print("Spectrogram created")
 
-    totalBits = abs_spectrogram.shape[1]
+    totalBits = abs_spectrogram.shape[-1]
     availableBytes = int(totalBits / 8 / REDUNDANCY)
     print(f"{availableBytes} bytes available")
 
@@ -193,13 +193,13 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
 
     invertedExpandedSecretBits = invertBits(expandedSecretBits)
 
-    print("Writting bits to frequencies...", end='\r')
+    print("Writing bits to frequencies...", end='\r')
     for fr in frequencies: # TODO: Decide whether to write the same to all or append the message
         for i in range(-PADDINGWIDTH, PADDINGWIDTH):
             abs_spectrogram[0][fr+i][:len(expandedSecretBits)] = expandedSecretBits
             abs_spectrogram[1][fr+i][-len(expandedSecretBits):] = invertedExpandedSecretBits
 
-    print("Writting bits to frequencies... OK")
+    print("Writing bits to frequencies... OK")
 
     # showSpectrogram(abs_spectrogram, fs)
 
@@ -279,7 +279,7 @@ if __name__ == "__main__":
         audioFile = input("Filename of the audio cover file: ")
         secretFile = input("Filename of the file to hide: ")
         outputFile = input("Filename of the output file: ")
-        encode(audioFile, secretFile, outputFile)
+        encode(audioFile, secretFile, outputFile, frequencies)
         # pass
     elif code == "decode":
         file = input("What file do you wish to decode? ")
