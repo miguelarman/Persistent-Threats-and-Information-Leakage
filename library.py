@@ -4,6 +4,7 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 import os
+import math
 
 REDUNDANCY = 2
 PADDINGWIDTH = 15
@@ -94,7 +95,8 @@ def bits2Filename(bits):
 
 def showSpectrogram(spectrogram_data, sr):
   specshow(spectrogram_data, sr=sr, x_axis='time', y_axis='log')
-  # plt.ylim(0, 2000)
+  plt.ylim(0, 2000)
+  plt.show()
 
 def spectrogram2AudioSignal(spectrogram):
   return librosa.core.spectrum.griffinlim(spectrogram)
@@ -111,7 +113,7 @@ def expandBits(bits):
     return result
 
 def invertBits(bits):
-    return [1-b for b in bits[::-1]]
+    return [1-b for b in bits]
 
 def checkAndUnexpandBits(bits):
     # bits[1] are already inverted and modified
@@ -158,7 +160,9 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     print("Spectrogram created")
 
     totalBits = abs_spectrogram.shape[-1]
-    availableBytes = int(totalBits / 8 / REDUNDANCY)
+    numFreqs = len(frequencies)
+    availableBytes = math.ceil(totalBits / 8 / REDUNDANCY) * numFreqs
+    availableBytesFreq = math.ceil(totalBits / 8)
     print(f"{availableBytes} bytes available")
 
     try:
@@ -169,19 +173,23 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     bytesToBeWriten = (BYTESFORLENGTHOFFILENAME + len(secretFilename) + BYTESFORLENGTHOFSECRET + int(len(secretBits) / 8)) * REDUNDANCY
     print(f"Bytes to be written: {bytesToBeWriten}")
 
+    numSplit = math.ceil(bytesToBeWriten / availableBytesFreq)
+    #!!
+    availableBytes = math.ceil(totalBits / 8) * numFreqs
+
     if bytesToBeWriten > availableBytes:
         print("Not enough space")
         exit()
 
 
     # Format:
+    # 4 bytes with length of numFeqs + numfreqs
     # 4 bytes with length of filename + filename as bits
     # 4 bytes with length of secret + secret bits
     fullSecretBits = length2Bits(len(secretFilename), BYTESFORLENGTHOFFILENAME) + filename2Bits(secretFilename) + \
                      length2Bits(int(len(secretBits) / 8), BYTESFORLENGTHOFSECRET) + secretBits
 
     expandedSecretBits = expandBits(fullSecretBits)
-
     print(f"Bytes expanded: from {int(len(secretBits)/8)} to {int(len(expandedSecretBits)/8)}")
 
     # maxSize = abs_spectrogram.shape[1] - (abs_spectrogram.shape[1] % 8)
@@ -194,28 +202,50 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     invertedExpandedSecretBits = invertBits(expandedSecretBits)
 
     print("Writing bits to frequencies...", end='\r')
-    for fr in frequencies: # TODO: Decide whether to write the same to all or append the message
-        for i in range(-PADDINGWIDTH, PADDINGWIDTH):
-            abs_spectrogram[0][fr+i][:len(expandedSecretBits)] = expandedSecretBits
-            abs_spectrogram[1][fr+i][-len(expandedSecretBits):] = invertedExpandedSecretBits
+    splitedBits = []
+    splitedinv = []
+    #Split the data in the num of frequencies
+    BitsFreq = totalBits
+    for i in range(0, (BitsFreq*numSplit), BitsFreq):
+        if i == ((BitsFreq * numSplit) - BitsFreq):
+            splitedBits.append(expandedSecretBits[i:])
+            splitedinv.append(invertedExpandedSecretBits[i:])
+        else:
+            splitedBits.append(expandedSecretBits[i: (i + BitsFreq)])
+            splitedinv.append(invertedExpandedSecretBits[i:(i + BitsFreq)])
 
-    print("Writing bits to frequencies... OK")
+    #print("bytestotales " + str(len(invertedExpandedSecretBits)) + " totalBits " + str(totalBits))
+    for i in range(numSplit):
+        for j in range(-PADDINGWIDTH, PADDINGWIDTH):
+            abs_spectrogram[0][frequencies[i]+j][:len(splitedBits[i])] = splitedBits[i]
+            abs_spectrogram[1][frequencies[i]+j][:len(splitedinv[i])] = splitedinv[i]
 
-    # showSpectrogram(abs_spectrogram, fs)
 
-    print("Converting spectrogram to audio signal... ", end='\r')
-    audio_signal1 = spectrogram2AudioSignal(abs_spectrogram[0])
-    print("Converting spectrogram to audio signal... 1/2", end='\r')
-    audio_signal2 = spectrogram2AudioSignal(abs_spectrogram[1])
-    print("Converting spectrogram to audio signal... OK!")
+    print("Writing bits to " + str(numSplit) + " frequencies... OK")
+
+    #showSpectrogram(abs_spectrogram)
+
+    newpid = os.fork()
+    if newpid == 0:
+        print("Converting spectrogram to audio signal... ", end='\r')
+        audio_signal1 = spectrogram2AudioSignal(abs_spectrogram[0])
+        sf.write("auxfile1.wav", audio_signal1, fs, 'PCM_24')
+        os._exit(0)
+    else:
+        #print("Converting spectrogram to audio signal... 1/2", end='\r')
+        audio_signal2 = spectrogram2AudioSignal(abs_spectrogram[1])
+        sf.write("auxfile2.wav", audio_signal2, fs, 'PCM_24')
+        os.wait()
+        print("Converting spectrogram to audio signal... OK!")
+
 
     # # print(sig, sig.shape)
     # print(abs_spectrogram.shape)
     # # print(audio_signal, audio_signal.shape)
 
     # write output
-    sf.write("auxfile1.wav", audio_signal1, fs, 'PCM_24')
-    sf.write("auxfile2.wav", audio_signal2, fs, 'PCM_24')
+
+
 
     left_channel = AudioSegment.from_wav("auxfile1.wav")
     right_channel = AudioSegment.from_wav("auxfile2.wav")
@@ -228,7 +258,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
 
     print(f"Audio signal written to {outputFilename}")
 
-def decode(audioFilename):
+def decode(audioFilename, frequencies):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -241,25 +271,34 @@ def decode(audioFilename):
         exit()
 
     abs_spectrogram = signal2Spectrogram(sig)
+
     print("Spectrogram created")
 
+    secrbits = []
+    invbits = []
     for fr in frequencies:
-        secretBits = abs_spectrogram[0][fr], invertBits(abs_spectrogram[1][fr])
-        print(f"Read {len(secretBits[0]), len(secretBits[1])} bits")
+        secrbits = np.append(secrbits, abs_spectrogram[0][fr])
+        invbits = np.append(invbits, abs_spectrogram[1][fr])
 
-        secretBits = checkAndUnexpandBits(secretBits)
-        print(f"Bits unexpanded to {len(secretBits)} bits")
+    secretBits = secrbits, invertBits(invbits)
+
+
+
+    print(f"Read {len(secretBits[0]), len(secretBits[1])} bits")
+
+    secretBits = checkAndUnexpandBits(secretBits)
+    print(f"Bits unexpanded to {len(secretBits)} bits")
 
         # TODO: Calculate average or append each frequency
 
     # print(secretBits[:8])
 
-    secretBits = secretBits[:-(len(secretBits) % 8)]
-
-    lengthOfFilename = bits2Length(  secretBits[                                                                     : (BYTESFORLENGTHOFFILENAME                                                       )*8], BYTESFORLENGTHOFFILENAME)
+    lengthOfFilename = bits2Length( secretBits[:(BYTESFORLENGTHOFFILENAME)*8], BYTESFORLENGTHOFFILENAME)
     filename         = bits2Filename(secretBits[(BYTESFORLENGTHOFFILENAME                                        )*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename                                      )*8])
     lengthOfSecret   = bits2Length(  secretBits[(BYTESFORLENGTHOFFILENAME+lengthOfFilename                       )*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET               )*8], BYTESFORLENGTHOFSECRET)
-    secretBits       =               secretBits[(BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET)*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET+lengthOfSecret)*8]
+
+
+    secretBits       =  secretBits[(BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET)*8 : (BYTESFORLENGTHOFFILENAME+lengthOfFilename+BYTESFORLENGTHOFSECRET+lengthOfSecret)*8]
 
     print(f"Length of filename: {lengthOfFilename}")
     print(f"Filename: {filename}")
@@ -272,7 +311,7 @@ def decode(audioFilename):
 if __name__ == "__main__":
 
     # TODO:
-    frequencies = [1000,]
+    frequencies = [1000, 1,]
 
     code = input("Choose between encode or decode: ")
     if code == "encode":
@@ -283,7 +322,7 @@ if __name__ == "__main__":
         # pass
     elif code == "decode":
         file = input("What file do you wish to decode? ")
-        decode(file)
+        decode(file, frequencies)
         # pass
     else:
         print("Code not accepted")
