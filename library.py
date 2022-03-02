@@ -5,12 +5,14 @@ import soundfile as sf
 from pydub import AudioSegment
 import os
 import math
+import random
 
 # REDUNDANCY = 2
-PADDINGWIDTH = 15
+PADDINGWIDTH = 5
 BYTESFORLENGTHOFFILENAME = 1
 BYTESFORLENGTHOFSECRET = 2
 
+FREQUENCIESOPTIONS = [50, 940, 70, 960, 90, 980, 110, 1000]
 
 def byte2Bits(byte):
   return int2Bits(int.from_bytes(byte, byteorder="big"))
@@ -44,6 +46,8 @@ def file2Bits(filename):
         bits = bits + newbits
         # print(bits)
         byte = f.read(1)
+
+    # bits = bits + byte2Bits(b'\x00')
     return bits
 
 def bits2File(bits, filename):
@@ -144,7 +148,7 @@ def checkAndUnexpandBits(bits, redundancy):
 
 ######
 
-def encode(audioFilename, secretFilename, outputFilename, frequencies, redundancy):
+def encode(audioFilename, secretFilename, outputFilename, redundancy, frequencies=FREQUENCIESOPTIONS):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -161,6 +165,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
 
     totalBits = abs_spectrogram.shape[-1]
     numFreqs = len(frequencies)
+
     availableBytes = math.ceil(totalBits / 8 / redundancy) * numFreqs
     availableBytesFreq = math.ceil(totalBits / 8)
     print(f"{availableBytes} bytes available")
@@ -187,21 +192,15 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
     # 4 bytes with length of filename + filename as bits
     # 4 bytes with length of secret + secret bits
     fullSecretBits = length2Bits(len(secretFilename), BYTESFORLENGTHOFFILENAME) + filename2Bits(secretFilename) + \
-                     length2Bits(int(len(secretBits) / 8), BYTESFORLENGTHOFSECRET) + secretBits
+                     length2Bits(int(len(secretBits) / 8), BYTESFORLENGTHOFSECRET) + secretBits + [0,]*8
 
     expandedSecretBits = expandBits(fullSecretBits, redundancy)
     print(f"Bytes expanded: from {int(len(secretBits)/8)} to {int(len(expandedSecretBits)/8)}")
 
-    # maxSize = abs_spectrogram.shape[1] - (abs_spectrogram.shape[1] % 8)
-    # if len(expandedSecretBits) > maxSize:
-    #     exit("Length too big")
-
-    # print(secretBits[0:16])REDUNDANCY * 4 * 8 + lengthOfFilename * REDUNDANCY + REDUNDANCY * 4 * 8
-    # expandedSecretBits += [0,] * (abs_spectrogram.shape[1] - len(expandedSecretBits))
-
     invertedExpandedSecretBits = invertBits(expandedSecretBits)
 
     print("Writing bits to frequencies...", end='\r')
+
     splitedBits = []
     splitedinv = []
     #Split the data in the num of frequencies
@@ -218,7 +217,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
     for i in range(numSplit):
         for j in range(-PADDINGWIDTH, PADDINGWIDTH):
             abs_spectrogram[0][frequencies[i]+j][:len(splitedBits[i])] = splitedBits[i]
-            abs_spectrogram[1][frequencies[i]+j][:len(splitedinv[i])] = splitedinv[i]
+            abs_spectrogram[1][frequencies[len(frequencies)-i-1]+j][:len(splitedinv[i])] = splitedinv[i]
 
 
     print("Writing bits to " + str(numSplit) + " frequencies... OK")
@@ -226,8 +225,8 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
     #showSpectrogram(abs_spectrogram)
 
     newpid = os.fork()
+    print("Converting spectrogram to audio signal... ", end='\r')
     if newpid == 0:
-        print("Converting spectrogram to audio signal... ", end='\r')
         audio_signal1 = spectrogram2AudioSignal(abs_spectrogram[0])
         sf.write("auxfile1.wav", audio_signal1, fs, 'PCM_24')
         os._exit(0)
@@ -236,16 +235,10 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
         audio_signal2 = spectrogram2AudioSignal(abs_spectrogram[1])
         sf.write("auxfile2.wav", audio_signal2, fs, 'PCM_24')
         os.wait()
-        print("Converting spectrogram to audio signal... OK!")
+    print("Converting spectrogram to audio signal... OK!")
 
-
-    # # print(sig, sig.shape)
-    # print(abs_spectrogram.shape)
-    # # print(audio_signal, audio_signal.shape)
 
     # write output
-
-
 
     left_channel = AudioSegment.from_wav("auxfile1.wav")
     right_channel = AudioSegment.from_wav("auxfile2.wav")
@@ -258,7 +251,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies, redundanc
 
     print(f"Audio signal written to {outputFilename}")
 
-def decode(audioFilename, frequencies):
+def decode(audioFilename, frequencies=FREQUENCIESOPTIONS):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -278,6 +271,8 @@ def decode(audioFilename, frequencies):
     invbits = []
     for fr in frequencies:
         secrbits = np.append(secrbits, abs_spectrogram[0][fr])
+
+    for fr in frequencies[::-1]:
         invbits = np.append(invbits, abs_spectrogram[1][fr])
 
     secretBits = secrbits, invertBits(invbits)
@@ -304,28 +299,31 @@ def decode(audioFilename, frequencies):
     print(f"Filename: {filename}")
     print(f"Length of secret: {lengthOfSecret}")
 
-    bits2File(secretBits, filename)
-    print(f"Secret written to {filename} ({lengthOfSecret} bits)")
+    bits2File(secretBits, filename+"_decoded")
+    print(f"Secret written to {filename}_decoded ({lengthOfSecret} bits)")
 
 
 if __name__ == "__main__":
 
-    # TODO:
-    frequencies = [1000,]
+    # frequencies = [1000,]
+    # nFreqs = 3
+    # frequencies = random.sample(FREQUENCIESOPTIONS, nFreqs)
 
     code = input("Choose between encode or decode: ")
     if code == "encode":
-        audioFile = input("Filename of the audio cover file: ")
+        audioFile  = input("Filename of the audio cover file: ")
         secretFile = input("Filename of the file to hide: ")
         outputFile = input("Filename of the output file: ")
         redundancy = input("Redundancy of each byte (the greater, the more robust it is, but the less capacity it has): ")
         redundancy = int(redundancy)
-        encode(audioFile, secretFile, outputFile, frequencies, redundancy)
-        # pass
+
+        encode(audioFile, secretFile, outputFile, redundancy)
+
     elif code == "decode":
         file = input("What file do you wish to decode? ")
-        decode(file, frequencies)
-        # pass
+        redundancy = input("Redundancy of each byte used in encoding: ")
+        redundancy = int(redundancy)
+        decode(file)
+
     else:
         print("Code not accepted")
-    # print("After encoding")
