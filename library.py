@@ -6,7 +6,7 @@ from pydub import AudioSegment
 import os
 import math
 
-REDUNDANCY = 2
+# REDUNDANCY = 2
 PADDINGWIDTH = 15
 BYTESFORLENGTHOFFILENAME = 1
 BYTESFORLENGTHOFSECRET = 2
@@ -106,23 +106,23 @@ def signal2Spectrogram(signal):
 
 
 
-def expandBits(bits):
+def expandBits(bits, redundancy):
     result = []
     for bit in bits:
-        result += [bit,] * REDUNDANCY
+        result += [bit,] * redundancy
     return result
 
 def invertBits(bits):
     return [1-b for b in bits]
 
-def checkAndUnexpandBits(bits):
+def checkAndUnexpandBits(bits, redundancy):
     # bits[1] are already inverted and modified
     result = []
     # print(bits[0][:16])
     # print(bits[1][:16])
-    for i in range(0, len(bits[0]) - len(bits[0])%REDUNDANCY, REDUNDANCY):
-        mean1 = sum([bits[0][j] for j in range(i, i + REDUNDANCY)]) / REDUNDANCY
-        mean2 = sum([bits[1][j] for j in range(i, i + REDUNDANCY)]) / REDUNDANCY
+    for i in range(0, len(bits[0]) - len(bits[0])%redundancy, redundancy):
+        mean1 = sum([bits[0][j] for j in range(i, i + redundancy)]) / redundancy
+        mean2 = sum([bits[1][j] for j in range(i, i + redundancy)]) / redundancy
 
         if abs(mean1-0.5) > abs(mean2-0.5):
             if mean1 > 0.5:
@@ -144,7 +144,7 @@ def checkAndUnexpandBits(bits):
 
 ######
 
-def encode(audioFilename, secretFilename, outputFilename, frequencies):
+def encode(audioFilename, secretFilename, outputFilename, frequencies, redundancy):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -161,7 +161,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
 
     totalBits = abs_spectrogram.shape[-1]
     numFreqs = len(frequencies)
-    availableBytes = math.ceil(totalBits / 8 / REDUNDANCY) * numFreqs
+    availableBytes = math.ceil(totalBits / 8 / redundancy) * numFreqs
     availableBytesFreq = math.ceil(totalBits / 8)
     print(f"{availableBytes} bytes available")
 
@@ -170,7 +170,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     except:
         print("Error opening file")
         return
-    bytesToBeWriten = (BYTESFORLENGTHOFFILENAME + len(secretFilename) + BYTESFORLENGTHOFSECRET + int(len(secretBits) / 8)) * REDUNDANCY
+    bytesToBeWriten = (BYTESFORLENGTHOFFILENAME + len(secretFilename) + BYTESFORLENGTHOFSECRET + int(len(secretBits) / 8)) * redundancy
     print(f"Bytes to be written: {bytesToBeWriten}")
 
     numSplit = math.ceil(bytesToBeWriten / availableBytesFreq)
@@ -189,7 +189,7 @@ def encode(audioFilename, secretFilename, outputFilename, frequencies):
     fullSecretBits = length2Bits(len(secretFilename), BYTESFORLENGTHOFFILENAME) + filename2Bits(secretFilename) + \
                      length2Bits(int(len(secretBits) / 8), BYTESFORLENGTHOFSECRET) + secretBits
 
-    expandedSecretBits = expandBits(fullSecretBits)
+    expandedSecretBits = expandBits(fullSecretBits, redundancy)
     print(f"Bytes expanded: from {int(len(secretBits)/8)} to {int(len(expandedSecretBits)/8)}")
 
     # maxSize = abs_spectrogram.shape[1] - (abs_spectrogram.shape[1] % 8)
@@ -286,7 +286,7 @@ def decode(audioFilename, frequencies):
 
     print(f"Read {len(secretBits[0]), len(secretBits[1])} bits")
 
-    secretBits = checkAndUnexpandBits(secretBits)
+    secretBits = checkAndUnexpandBits(secretBits, redundancy)
     print(f"Bits unexpanded to {len(secretBits)} bits")
 
         # TODO: Calculate average or append each frequency
@@ -311,14 +311,16 @@ def decode(audioFilename, frequencies):
 if __name__ == "__main__":
 
     # TODO:
-    frequencies = [1000, 1,]
+    frequencies = [1000,]
 
     code = input("Choose between encode or decode: ")
     if code == "encode":
         audioFile = input("Filename of the audio cover file: ")
         secretFile = input("Filename of the file to hide: ")
         outputFile = input("Filename of the output file: ")
-        encode(audioFile, secretFile, outputFile, frequencies)
+        redundancy = input("Redundancy of each byte (the greater, the more robust it is, but the less capacity it has): ")
+        redundancy = int(redundancy)
+        encode(audioFile, secretFile, outputFile, frequencies, redundancy)
         # pass
     elif code == "decode":
         file = input("What file do you wish to decode? ")
