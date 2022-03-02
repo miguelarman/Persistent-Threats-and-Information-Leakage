@@ -6,12 +6,15 @@ from pydub import AudioSegment
 import os
 import math
 import random
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+import getpass
 
 # REDUNDANCY = 2
 PADDINGWIDTH = 5
 BYTESFORLENGTHOFFILENAME = 1
 BYTESFORLENGTHOFSECRET = 2
-
+KEY = b'1234123412341234'
 FREQUENCIESOPTIONS = [50, 940, 70, 960, 90, 980, 110, 1000]
 
 def byte2Bits(byte):
@@ -47,7 +50,6 @@ def file2Bits(filename):
         # print(bits)
         byte = f.read(1)
 
-    # bits = bits + byte2Bits(b'\x00')
     return bits
 
 def bits2File(bits, filename):
@@ -143,12 +145,30 @@ def checkAndUnexpandBits(bits, redundancy):
 
     return result
 
+def cipherFile(filename, key):
+    with open(filename, "rb") as input:
+        data = input.read()
+        cipher = AES.new(key, AES.MODE_CBC, iv=key)
+        ciphered = cipher.encrypt(pad(data, AES.block_size))
+        print("Data ciphered")
 
+    with open(filename+".cipher", "wb") as output:
+        output.write(ciphered)
+        print("Ciphered data writen to temporal file")
 
+def uncipherFile(filename, key):
+    with open(filename+".cipher", "rb") as input:
+        data = input.read()
+        cipher = AES.new(key, AES.MODE_CBC, iv=key)
+        print("Read ciphered data")
+
+    with open(filename, "wb") as output:
+        output.write(unpad(cipher.decrypt(data), AES.block_size))
+        print("Data unciphered and writen")
 
 ######
 
-def encode(audioFilename, secretFilename, outputFilename, redundancy, frequencies=FREQUENCIESOPTIONS):
+def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequencies=FREQUENCIESOPTIONS):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -171,10 +191,11 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, frequencie
     print(f"{availableBytes} bytes available")
 
     try:
-        secretBits = file2Bits(secretFilename)
+        cipherFile(secretFilename, key)
     except:
         print("Error opening file")
         return
+    secretBits = file2Bits(secretFilename+".cipher")
     bytesToBeWriten = (BYTESFORLENGTHOFFILENAME + len(secretFilename) + BYTESFORLENGTHOFSECRET + int(len(secretBits) / 8)) * redundancy
     print(f"Bytes to be written: {bytesToBeWriten}")
 
@@ -251,7 +272,7 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, frequencie
 
     print(f"Audio signal written to {outputFilename}")
 
-def decode(audioFilename, frequencies=FREQUENCIESOPTIONS):
+def decode(audioFilename, key, frequencies=FREQUENCIESOPTIONS):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -299,31 +320,42 @@ def decode(audioFilename, frequencies=FREQUENCIESOPTIONS):
     print(f"Filename: {filename}")
     print(f"Length of secret: {lengthOfSecret}")
 
-    bits2File(secretBits, filename+"_decoded")
+    bits2File(secretBits, filename+"_decoded.cipher")
+    uncipherFile(filename+"_decoded", key)
     print(f"Secret written to {filename}_decoded ({lengthOfSecret} bits)")
 
 
 if __name__ == "__main__":
 
-    # frequencies = [1000,]
-    # nFreqs = 3
-    # frequencies = random.sample(FREQUENCIESOPTIONS, nFreqs)
-
     code = input("Choose between encode or decode: ")
+
     if code == "encode":
         audioFile  = input("Filename of the audio cover file: ")
         secretFile = input("Filename of the file to hide: ")
         outputFile = input("Filename of the output file: ")
         redundancy = input("Redundancy of each byte (the greater, the more robust it is, but the less capacity it has): ")
         redundancy = int(redundancy)
+        key        = getpass.getpass(prompt="Key for the cipher: ")
 
-        encode(audioFile, secretFile, outputFile, redundancy)
+        if len(key) != 16:
+            print("Key must be 16 characters")
+            exit()
+        key = key.encode('utf-8')
+
+        encode(audioFile, secretFile, outputFile, redundancy, key)
 
     elif code == "decode":
-        file = input("What file do you wish to decode? ")
+        file       = input("What file do you wish to decode? ")
         redundancy = input("Redundancy of each byte used in encoding: ")
         redundancy = int(redundancy)
-        decode(file)
+        key        = getpass.getpass(prompt="Key used for the cipher: ")
+
+        if len(key) != 16:
+            print("Key must be 16 characters")
+            exit()
+        key = key.encode('utf-8')
+
+        decode(file, key)
 
     else:
         print("Code not accepted")
