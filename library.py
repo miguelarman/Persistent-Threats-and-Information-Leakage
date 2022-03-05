@@ -14,7 +14,7 @@ import getpass
 PADDINGWIDTH = 5
 BYTESFORLENGTHOFFILENAME = 1
 BYTESFORLENGTHOFSECRET = 2
-KEY = b'1234123412341234'
+# KEY = b'1234123412341234'
 FREQUENCIESOPTIONS = [1020, 1010, 1000, 990, 980, 970, 960, 950]
 
 def byte2Bits(byte):
@@ -23,7 +23,6 @@ def byte2Bits(byte):
 def int2Bits(int):
   bits = [0,]*8
   n = int
-  # print(n)
 
   for i in range(8):
     bits[7-i] = n%2
@@ -32,7 +31,6 @@ def int2Bits(int):
 
 def bits2Byte(bits):
   n = 0
-  # print(bits)
   for i in range(8):
     n += bits[i] * 2**(7-i)
   return n
@@ -47,7 +45,6 @@ def file2Bits(filename):
     while byte != b"":
         newbits = byte2Bits(byte)
         bits = bits + newbits
-        # print(bits)
         byte = f.read(1)
 
     return bits
@@ -61,24 +58,20 @@ def bits2File(bits, filename):
       f.write(byte)
 
 def length2Bits(length, nbytes):
-    # print(length)
     bits = [0,]*8*nbytes
     n = length
     for i in range(8*nbytes):
         bits[8*nbytes-1-i] = n%2
         n = n//2
-    # print(bits)
     return bits
 
 def bits2Length(bits, nbytes):
-    # print(bits)
     n = 0
     for i in range(nbytes):
         n_ = bits2Int(bits[i*8:(i+1)*8])
         n *= 2**8
         n += n_
     return n
-
 
 def filename2Bits(filename):
     bits = []
@@ -88,11 +81,9 @@ def filename2Bits(filename):
     return bits
 
 def bits2Filename(bits):
-    # print(bits, len(bits))
     filename = []
     for i in range(0, len(bits), 8):
         b = bits[i:i+8]
-        # print(i, b)
         b = bits2Byte(b)
         filename.append(b)
     return bytearray(filename).decode('utf-8')
@@ -124,8 +115,6 @@ def invertBits(bits):
 def checkAndUnexpandBits(bits, redundancy):
     # bits[1] are already inverted and modified
     result = []
-    # print(bits[0][:16])
-    # print(bits[1][:16])
     for i in range(0, len(bits[0]) - len(bits[0])%redundancy, redundancy):
         mean1 = sum([bits[0][j] for j in range(i, i + redundancy)]) / redundancy
         mean2 = sum([bits[1][j] for j in range(i, i + redundancy)]) / redundancy
@@ -145,10 +134,10 @@ def checkAndUnexpandBits(bits, redundancy):
 
     return result
 
-def cipherFile(filename, key):
+def cipherFile(filename, key, iv):
     with open(filename, "rb") as input:
         data = input.read()
-        cipher = AES.new(key, AES.MODE_CBC, iv=key)
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
         ciphered = cipher.encrypt(pad(data, AES.block_size))
         print("Data ciphered")
 
@@ -156,10 +145,10 @@ def cipherFile(filename, key):
         output.write(ciphered)
         print("Ciphered data writen to temporal file")
 
-def uncipherFile(filename, key):
+def uncipherFile(filename, key, iv):
     with open(filename+".cipher", "rb") as input:
         data = input.read()
-        cipher = AES.new(key, AES.MODE_CBC, iv=key)
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
         print("Read ciphered data")
 
     with open(filename, "wb") as output:
@@ -168,9 +157,9 @@ def uncipherFile(filename, key):
 
 ######
 
-def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequencies=FREQUENCIESOPTIONS):
+def encode(audioFilename, secretFilename, outputFilename, redundancy, key, iv, frequencies=FREQUENCIESOPTIONS):
     try:
-        sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
+        sig, fs = librosa.core.load(audioFilename, mono=False)
     except:
         print("Error opening file")
         return
@@ -191,7 +180,7 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequ
     print(f"{availableBytes} bytes available")
 
     try:
-        cipherFile(secretFilename, key)
+        cipherFile(secretFilename, key, iv)
     except:
         print("Error opening file")
         return
@@ -234,7 +223,6 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequ
             splitedBits.append(expandedSecretBits[i: (i + BitsFreq)])
             splitedinv.append(invertedExpandedSecretBits[i:(i + BitsFreq)])
 
-    #print("bytestotales " + str(len(invertedExpandedSecretBits)) + " totalBits " + str(totalBits))
     for i in range(numSplit):
         for j in range(-PADDINGWIDTH, PADDINGWIDTH):
             abs_spectrogram[0][frequencies[i]+j][:len(splitedBits[i])] = splitedBits[i]
@@ -243,7 +231,6 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequ
 
     print("Writing bits to " + str(numSplit) + " frequencies... OK")
 
-    #showSpectrogram(abs_spectrogram)
 
     newpid = os.fork()
     print("Converting spectrogram to audio signal... ", end='\r')
@@ -252,7 +239,6 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequ
         sf.write("auxfile1.wav", audio_signal1, fs, 'PCM_24')
         os._exit(0)
     else:
-        #print("Converting spectrogram to audio signal... 1/2", end='\r')
         audio_signal2 = spectrogram2AudioSignal(abs_spectrogram[1])
         sf.write("auxfile2.wav", audio_signal2, fs, 'PCM_24')
         os.wait()
@@ -272,7 +258,7 @@ def encode(audioFilename, secretFilename, outputFilename, redundancy, key, frequ
 
     print(f"Audio signal written to {outputFilename}")
 
-def decode(audioFilename, key, frequencies=FREQUENCIESOPTIONS):
+def decode(audioFilename, key, iv, frequencies=FREQUENCIESOPTIONS):
     try:
         sig, fs = librosa.core.load(audioFilename, mono=False)#, sr=8000)
     except:
@@ -321,7 +307,7 @@ def decode(audioFilename, key, frequencies=FREQUENCIESOPTIONS):
     print(f"Length of secret: {lengthOfSecret}")
 
     bits2File(secretBits, filename+"_decoded.cipher")
-    uncipherFile(filename+"_decoded", key)
+    uncipherFile(filename+"_decoded", key, iv)
     print(f"Secret written to {filename}_decoded ({lengthOfSecret} bits)")
 
 
@@ -341,8 +327,14 @@ if __name__ == "__main__":
             print("Key must be 16 characters")
             exit()
         key = key.encode('utf-8')
+        iv        = getpass.getpass(prompt="IV for the cipher: ")
 
-        encode(audioFile, secretFile, outputFile, redundancy, key)
+        if len(iv) != 16:
+            print("IV must be 16 characters")
+            exit()
+        iv = iv.encode('utf-8')
+
+        encode(audioFile, secretFile, outputFile, redundancy, key, iv)
 
     elif code == "decode":
         file       = input("What file do you wish to decode? ")
@@ -355,7 +347,14 @@ if __name__ == "__main__":
             exit()
         key = key.encode('utf-8')
 
-        decode(file, key)
+        iv        = getpass.getpass(prompt="IV for the cipher: ")
+
+        if len(iv) != 16:
+            print("IV must be 16 characters")
+            exit()
+        iv = iv.encode('utf-8')
+
+        decode(file, key, iv)
 
     else:
         print("Code not accepted")
