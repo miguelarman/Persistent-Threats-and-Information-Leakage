@@ -340,18 +340,23 @@ if __name__ == "__main__":
         file       = input("What file do you wish to decode? ")
         redundancy = input("Redundancy of each byte used in encoding: ")
         redundancy = int(redundancy)
-        key        = getpass.getpass(prompt="Key used for the cipher (16 characters): ")
 
-        if len(key) != 16:
-            print("Key must be 16 characters")
-            exit()
+        key = ""
+        while len(key) != 16:
+            key = getpass.getpass(prompt="Key used for the cipher (16 characters): ")
+        #
+        # if len(key) != 16:
+        #     print("Key must be 16 characters")
+        #     exit()
         key = key.encode('utf-8')
 
-        iv        = getpass.getpass(prompt="IV for the cipher (16 characters): ")
+        iv = ""
+        while len(iv) != 16:
+            iv = getpass.getpass(prompt="IV for the cipher (16 characters): ")
 
-        if len(iv) != 16:
-            print("IV must be 16 characters")
-            exit()
+        # if len(iv) != 16:
+        #     print("IV must be 16 characters")
+        #     exit()
         iv = iv.encode('utf-8')
 
         decode(file, key, iv)
