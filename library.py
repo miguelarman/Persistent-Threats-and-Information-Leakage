@@ -363,3 +363,10 @@ if __name__ == "__main__":
 
     else:
         print("Code not accepted")
+        exit()
+
+    # Clean auxiliary cipher files
+    for item in os.listdir():
+        if item.endswith(".cipher"):
+            print(item)
+            os.remove(item)
